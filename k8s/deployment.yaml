@@ -14,6 +14,6 @@ spec:
     spec:
       containers:
         - name: myapp
-          image: matalobo/myapp:latest
+          image: matalobo/myapp:ce5c89d0b5abda8ffd03fbcac609f6d4785c42b5
           ports:
             - containerPort: 80
