@@ -1,0 +1,55 @@
+name: CI/CD Docker + ArgoCD (GitOps)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build_push_update:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # pour pouvoir commit/push la MAJ du deployment.yaml
+
+    env:
+      IMAGE_NAME: myapp
+      MANIFEST: k8s/deployment.yaml
+
+    steps:
+      - name: 1) Prendre le code du repo
+        uses: actions/checkout@v4
+
+      - name: 2) Créer un tag unique (le numéro de la boîte)
+        id: tag
+        run: echo "TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
+      - name: 3) Se connecter à Docker Hub (avec les secrets)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 4) Construire + envoyer l’image sur Docker Hub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: 5) Mettre le nouveau tag dans le fichier Kubernetes
+        run: |
+          NEW_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}"
+          echo "Nouvelle image: $NEW_IMAGE"
+          sed -i "s|^\(\s*image:\s*\).*|\1${NEW_IMAGE}|" "${{ env.MANIFEST }}"
+          echo "Image dans le manifest maintenant :"
+          grep -n "image:" "${{ env.MANIFEST }}"
+
+      - name: 6) Commit + push (comme ça ArgoCD déploie)
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add "${{ env.MANIFEST }}"
+          git commit -m "chore: deploy ${{ steps.tag.outputs.TAG }}" || echo "Rien à commit"
+          git push
